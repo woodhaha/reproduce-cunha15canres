@@ -1,0 +1,269 @@
+---
+title: "(draft) Reproduction of biostatistical analyses in Cunha15CanRes"
+author: "John Lövrot"
+license: "CC BY 4.0"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    fig_width: 8
+    fig_height: 4
+link-citations: yes
+bibliography: bibliography.bib
+csl: journal-of-the-national-cancer-institute.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.path = 'graphics/reproduce-cunha15canres-', 
+    echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r load_project}
+setwd("..")
+ProjectTemplate::reload.project()
+setwd("reports")
+
+select <- dplyr::select  # mask AnnotationDbi::select
+```
+
+```{r settings}
+ggplot2::theme_set(theme_classic() +
+    theme(axis.line.x = element_blank()) + 
+    theme(axis.line.y = element_blank()))
+
+coltrtgrp <- colJCO[c("blue", "yellow", "red")]
+names(coltrtgrp) <- c("ET", "CT+ET", "CT")
+
+options(knitr.kable.NA = "")
+```
+
+```{r}
+if (interactive()) {
+  ## cf. Tab1
+  tab1_symbols <- c("ACVRL1", "PECAM1", "CDH5", "CD34",
+    "GDF2", "BMP10", "SMAD6", "TGFBR1", "TGFB1", "TGFB1", "TGFB3")
+  
+  tibble(
+    symbol = tab1_symbols, 
+    gse48091 = tab1_symbols %in% fData(gse48091)$symbol,
+    gse81954 = tab1_symbols %in% fData(gse81954)$symbol) %>%
+    knitr::kable()
+
+  ## Preprocessed data for all probesets are not availabled in GSE48091. 
+  ## A non-specific variance filter has been applied, see, 
+  ## for example, https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM1167774
+  ## "A variance filter was employed and probes with inter-quartile-range less 
+  ## than 0.5 were excluded, resulting in 28449 retained probes."
+  
+  ## An in-house full ExpressionSet was used in the analysis for the original article.
+}
+```
+
+```{r additional_munging}
+sel_symbols <- c("ACVRL1", "PECAM1", "CDH5", "CD34", "ESR1")
+eset <- casecontstudy[fData(casecontstudy)$symbol %in% sel_symbols, ] %>%
+  genefilter::featureFilter()
+featureNames(eset) <- as.character(fData(eset)$symbol)
+pData(eset) <- cbind(pData(eset), t(exprs(eset)))
+
+pData(casecontstudy) <- pData(eset) %>%
+  as_tibble() %>%
+  mutate(
+    endothelial_metagene = (PECAM1 + CDH5 + CD34) / 3,
+    ACVRL1_endothelial_index = ACVRL1 - endothelial_metagene, 
+    h2stat = factor(subtypecd %in% "H2", 
+      levels = c(FALSE, TRUE), labels = c("other", "H2"))
+    ) %>%
+  (function(x) data.frame(x, row.names = x$subjid))
+
+stopifnot(validObject(casecontstudy))
+```
+
+```{r}
+## Derive excess distant metastases (martingale residuals in an empty model)
+## Same as clogit, but not method="exact"; now defaults to "efron"
+model <- coxph(
+  Surv(rep(1, 768L), casecontstat) ~ 0 + strata(setnr),
+  data =  pData(casecontstudy))
+casecontstudy$excessdm <- residuals(model, method = "martingale")
+```
+
+# Aim
+
+The aim of this report is to reproduce the statistical analyses of the nested case-control study [GSE48091](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE48091) as part of the original research article by Cunha, Bocci, Lövrot, et al. [@Cunha2015;@Cunha2016]
+
+Since not all clinical-pathological data is public, in particular disease stage (tumour size and lymph node status), the analyses are not identical to the ones in the article. 
+
+# Background
+
+To be added.
+
+# Data analysis
+
+## Co-expression analysis
+
+Endothelial genes co-expressed with ACVRL1.
+
+```{r}
+endothelial_genes <- c("TIE1", "PECAM1", "CD34", "ESAM", "CDH5", "VWF", "FLI1")
+
+eset <- gse48091[fData(gse48091)$symbol %in% c("ACVRL1", endothelial_genes), ] %>%
+  genefilter::featureFilter()
+featureNames(eset) <- as.character(fData(eset)$symbol)
+
+endothelial_genes %>%
+  purrr::map(
+    function(symbol) {
+    fit <- cor.test(
+      x = exprs(eset)[symbol, ], y = exprs(eset)["ACVRL1", ], 
+      method = "pearson")
+    tibble(
+      "Gene name" = symbol,
+      "Correlation coefficient" = fit$estimate, 
+      "95% CI lower limit" = fit$conf.int[1],
+      "95% CI uppper limit" = fit$conf.int[2])
+  }) %>%
+  purrr::reduce(rbind) %>%
+  knitr::kable(
+    row.names = FALSE, digits = 2, 
+    caption = paste(
+      "Table (cf. Suppl. Tab. 1 in the original article).", 
+      "Endothelial genes co-expressed with ACVRL1 in the nested case-control study."))
+```
+
+## Statistical inference
+
+Univariate and multivariable conditional logistic regression models are used to compare patients developing metastatic disease with patient free from disseminating disase in the nested case-control study, 
+where the controls are randomly matched to cases by age, adjuvant systemic therapy and calendar period at diagnosis.
+
+Since the clinical-pathological data on tumour size, lymph node status and HER2-status is not public, the analyses are not identical to the ones in the article. 
+HER2-enriched intrinsic subtype as determined by PAM50[@Parker2009] (versus rest) is used as a surrogate for clinical HER2-status.
+
+Moreover, within-therapy-group associations for proliferation as represented by the PAM50-PROLIF index[@Nielsen2010] is added as proliferation is a strong prognostic factor in ER-positive breast cancer (enriched in the endocrine therapy groups) and a (potential) predictive factor for response to chemotherapy, with opposite direction of association with outcome. 
+See also illustrative figure in the Supportive information below.
+
+```{r}
+uni_models <- list()  # initalise
+
+uni_models[["scale(ACVRL1)"]] <- clogit(
+  casecontstat ~ scale(ACVRL1) + strata(setnr),
+  data = pData(casecontstudy))
+
+uni_models[["scale(endothelial_metagene)"]] <- clogit(
+  casecontstat ~ scale(endothelial_metagene) + strata(setnr),
+  data = pData(casecontstudy))
+
+uni_models[["scale(ACVRL1_endothelial_index)"]] <- clogit(
+  casecontstat ~ scale(ACVRL1_endothelial_index) + strata(setnr),
+  data = pData(casecontstudy))
+
+uni_models[["h2stat"]] <- clogit(
+  casecontstat ~ h2stat + strata(setnr),
+  data = pData(casecontstudy))
+
+uni_models[["trtgrp:scale(PAM50PROLIF)"]] <- clogit(
+  casecontstat ~ trtgrp:scale(PAM50PROLIF) + strata(setnr),
+  data = pData(casecontstudy))
+```
+
+```{r}
+model_multiA <- clogit(
+  casecontstat ~ scale(ACVRL1) + scale(endothelial_metagene) + 
+    h2stat + trtgrp:scale(PAM50PROLIF) + strata(setnr),
+  data = pData(casecontstudy))
+
+model_multiB <- clogit(
+  casecontstat ~ scale(ACVRL1_endothelial_index) + 
+    h2stat + trtgrp:scale(PAM50PROLIF) + strata(setnr),
+  data = pData(casecontstudy))
+
+uni_models %>%
+  purrr::map(compile_res_tbl, suffix = "univariate models") %>%
+  purrr::reduce(rbind) %>%
+  full_join(compile_res_tbl(model_multiA, suffix = "multivariable model A"), by = "coef") %>%
+  full_join(compile_res_tbl(model_multiB, suffix = "multivariable model B"), by = "coef") %>%
+  knitr::kable(
+    row.names = FALSE, digits = 2, 
+    caption = paste("Table (cf. Tab. 1 in the original article).",
+      "Univariate and multivariable conditional logistic regression models of the nested case-control study.", 
+      "Per standard-deviation hazard ratios (HR) for continuous variables.", 
+      "ET, endocrine therapy; CT, chemotherapy; H2, HER2-enriched intrinsic subtype; PAM50PROLIF: PAM50 proliferation index.",
+      "Statistical significance codes:  0 '\\*\\*\\*' 0.001 '\\*\\*' 0.01 '\\*' 0.05 '.' 0.1 '\\  ' 1."))
+    
+```
+
+Endothelial metagene expression is the average expression of the prototypical endothelial cell markers PECAM1, CDH5, and CD34.
+
+# Supportive information
+
+Relating ACVRL1 to prototypical endothelial gene-expression makes the association with risk of disseminating disease coherent across treatment groups.
+
+```{r, fig.height = 8, fig.cap = "Figure (cf. Suppl. Fig. 3A and 3B in the original article). (A) Exploratory plots of excess distant metastases versus the ACVRL1:endothelial metagene index, stratified by adjuvant systemic therapy. ET, endocrine therapy; CT, chemotherapy. (B) Box plots show similar manifestation of the ACVRL1:endothelial metagene across all molecular subtypes of breast cancer. LA, luminal A; LB, luminal B; H2, HER2-enriched; BL, basal-like; NBL, normal breast-like."}
+gg1 <- pData(casecontstudy) %>%
+  ggplot(aes(x = scale(ACVRL1_endothelial_index), y = excessdm)) +
+  geom_point(shape = 1) +
+  geom_smooth(aes(col = trtgrp), method = "loess") +
+  facet_grid(. ~ trtgrp) +
+  scale_colour_manual(values = coltrtgrp) +
+  labs(
+    x = "ACVRL1:endothelial metagene index\n(centered and scaled)",
+    y = "Excess distant metastases", col = "Adjuvant systemic therapy") +
+  theme(legend.position = "bottom")
+
+gg2 <- pData(casecontstudy) %>%
+  ggplot(aes(x = subtypecd, y = scale(ACVRL1_endothelial_index))) +
+  geom_boxplot(aes(fill = subtypecd), outlier.shape = 1, notch = TRUE, varwidth = TRUE) +
+  scale_fill_manual(values = colsubtypecd, guide = FALSE) +
+  labs(
+    x = "Intrinsic molecular subtype",
+    y = "ACVRL1:endothelial metagene index\n(centered and scaled)")
+
+cowplot::ggdraw() +
+  cowplot::draw_plot(gg1, x = 0, y = 0.5, w = 1, h = 0.5) +
+  cowplot::draw_plot(gg2, x = 0, y = 0, w = 0.5, h = 0.5) +
+  cowplot::draw_plot_label(c("A", "B"), x = c(0, 0), y = c(1, 0.5))
+```
+
+The shape of the smoother in an excess distant metastases plot indicates the form of an association between the gene expression variable and risk of metastatic disease. 
+Mathematically, the excess distant metastases are martingale residuals in a null conditional logistic regression model.
+
+```{r, fig.height = 6, fig.cap = "Figure. Illustration of the association with outcome for proliferation status of the tumour as examplified by the PAM50-PROLIF index."}
+gg1 <- pData(casecontstudy) %>%
+  ggplot(aes(x = PAM50PROLIF, y = excessdm)) + 
+  geom_point(shape = 1) +
+  geom_smooth(method = "loess", col = "darkred") +
+  labs(y = "Excess distant metastases")
+
+gg2 <- pData(casecontstudy) %>%
+  ggplot(aes(x = trtgrp, y = PAM50PROLIF)) + 
+  geom_boxplot(outlier.shape = 1, varwidth = TRUE) +
+  labs(x = "") +
+  coord_flip()
+
+cowplot::plot_grid(
+  gg1, 
+  gg1 + facet_wrap(~ trtgrp), 
+  gg2,
+  labels = "AUTO", ncol = 2, rel_widths = c(1, 2))
+```
+
+# Addendum
+
+To be added. [@Cunha2016]
+
+# R session information
+
+```{r}
+print(sessionInfo(), locale = FALSE)
+```
+
+- - -
+
+&copy; 2017 John Lövrot.  
+This work is licensed under a [Creative Commons Attribution 4.0 International License](http://creativecommons.org/licenses/by/4.0/).  
+The source code is available at [github.com/lovrot/reproduce-cunha15canres](http://github.com/lovrot/reproduce-cunha15canres).  
+Version `r format(read.dcf("../description.dcf")[1, "version"])`
+
+# References

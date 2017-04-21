@@ -10,6 +10,8 @@ Instructions
 
 To be added.
 
+A generated (draft) report can be viewed at [lovrot.github.io/reproduce-cunha15canres/](http://lovrot.github.io/reproduce-cunha15canres/).
+
 References
 ----------
 

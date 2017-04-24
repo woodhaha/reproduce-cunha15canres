@@ -92,7 +92,7 @@ casecontstudy$excessdm <- residuals(model, method = "martingale")
 
 # Aim
 
-The aim of this report is to reproduce the statistical analyses of the nested case-control study [GSE48091](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE48091) as part of the original research article by Cunha, Bocci, Lövrot, et al. [@Cunha2015;@Cunha2016]
+The aim of this report is to reproduce the statistical analyses of the nested case-control study [GSE48091](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE48091) as part of the original research article by Cunha, Bocci, Lövrot, et al. [@Cunha2015;@Lovrot2016]
 
 Since not all clinical-pathological data is public, in particular disease stage (tumour size and lymph node status), the analyses are not identical to the ones in the article. 
 
@@ -251,7 +251,7 @@ cowplot::plot_grid(
 
 # Addendum
 
-Addendum/Correction[@Cunha2016], 
+Addendum/Correction[@Lovrot2016], 
 
 ```{r}
 sel_symbols <- c("ACVRL1", "PECAM1", "CDH5", "CD34", "ESR1", "ERBB2")

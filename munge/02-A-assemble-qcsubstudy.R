@@ -13,7 +13,18 @@ rownames(tmpdf) <- tmpdf$geo_accession
 qcsubstudy <- ExpressionSet(qcsubstudy_exprs)
 pData(qcsubstudy) <- tmpdf
 
-## Annotation data
+## Munge phenotypic data
+pData(qcsubstudy) <- pData(qcsubstudy) %>%
+  as_tibble() %>%
+  mutate(
+    rna_extract = factor(piece, levels = c(1, 2),
+      labels = c("original", "reextract")),
+    casecontcd = factor(casecontstat, levels = c(0, 1),
+      labels = c("control", "case"))
+  ) %>%
+  (function(x) data.frame(x, row.names = x$geo_accession))
+
+## Append annotation data
 annotation(qcsubstudy) <- "HuRSTA2a520709"
 fData(qcsubstudy) <- fData(qcsubstudy) %>%
   mutate(

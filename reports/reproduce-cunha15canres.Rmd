@@ -273,6 +273,7 @@ sel_symbols <- c("ESR1", "ERBB2")
 pData(qcsubstudy) %>%
   select(tumorid, rna_extract, one_of(sel_symbols)) %>%
   gather(symbol, value, one_of(sel_symbols)) %>%
+  mutate(symbol = factor(symbol, sel_symbols)) %>%
   spread(rna_extract, value) %>%
   group_by(symbol) %>%
   summarise(r = cor(original, reextract, method = "pearson")) %>%

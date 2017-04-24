@@ -92,7 +92,7 @@ casecontstudy$excessdm <- residuals(model, method = "martingale")
 
 # Aim
 
-The aim of this report is to reproduce the statistical analyses of the nested case-control study [GSE48091](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE48091) as part of the original research article by Cunha, Bocci, Lövrot, et al. [@Cunha2015;@Cunha2016]
+The aim of this report is to reproduce the statistical analyses of the nested case-control study [GSE48091](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE48091) as part of the original research article by Cunha, Bocci, Lövrot, et al. [@Cunha2015;@Lovrot2016]
 
 Since not all clinical-pathological data is public, in particular disease stage (tumour size and lymph node status), the analyses are not identical to the ones in the article. 
 
@@ -251,7 +251,96 @@ cowplot::plot_grid(
 
 # Addendum
 
-To be added. [@Cunha2016]
+Addendum/Correction[@Lovrot2016], 
+
+```{r}
+sel_symbols <- c("ACVRL1", "PECAM1", "CDH5", "CD34", "ESR1", "ERBB2")
+
+eset <- qcsubstudy[fData(qcsubstudy)$symbol %in% sel_symbols, ] %>%
+  averageExprsByFDataVar("symbol")
+featureNames(eset) <- as.character(fData(eset)$symbol)
+
+pData(qcsubstudy) <- cbind(pData(qcsubstudy), t(exprs(eset)))
+
+stopifnot(validObject(qcsubstudy))
+```
+
+> The correlation between gene expression data for original and reextracted RNA is excellent for key breast cancer genes, for example, ESR1 (r = 0.95) and ERBB2 (r = 0.96).
+
+```{r}
+sel_symbols <- c("ESR1", "ERBB2")
+
+pData(qcsubstudy) %>%
+  select(tumorid, rna_extract, one_of(sel_symbols)) %>%
+  gather(symbol, value, one_of(sel_symbols)) %>%
+  spread(rna_extract, value) %>%
+  group_by(symbol) %>%
+  summarise(r = cor(original, reextract, method = "pearson")) %>%
+  rename(c(
+    symbol = "Gene name",
+    r = "Correlation coefficient")) %>%
+  knitr::kable(digits = 3)
+```
+
+> Bridging the primary comparison, case–control set differences (n = 40) for ACVRL1 and the ACVRL1:endothelial metagene index that we reported are consistent between the two extractions (Fig. 1). 
+> A case–control set difference is the value for the case minus the (average) value of the matched control(s).
+
+```{r}
+pData(qcsubstudy) <- pData(qcsubstudy) %>%
+  as_tibble() %>%
+  mutate(
+    endothelial_metagene = PECAM1 + CDH5 + CD34,  # unfortunately, this incorrect derivation was used for the addendum
+    # endothelial_metagene = (PECAM1 + CDH5 + CD34) / 3,  # correct derivation; reassuringly, the consistency remains.
+    ACVRL1_endothelial_index = ACVRL1 - endothelial_metagene
+  ) %>%
+  (function(x) data.frame(x, row.names = x$geo_accession))
+
+stopifnot(validObject(qcsubstudy))
+```
+
+```{r}
+sel_markers <- c("ACVRL1", "ACVRL1_endothelial_index")
+
+setdiff_tbl <- pData(qcsubstudy) %>%
+  ## Identify sets with one case and at least one control
+  group_by(rna_extract, setnr) %>%
+  mutate(
+    n_cases_in_set = sum(casecontcd == "case"),
+    n_controls_in_set = sum(casecontcd == "control")) %>%
+  filter(n_cases_in_set == 1 & n_controls_in_set >= 1) %>%
+  ## Derive case-control set differences
+  select(rna_extract, setnr, casecontcd, one_of(sel_markers)) %>%
+  gather(marker, value, one_of(sel_markers)) %>%
+  group_by(rna_extract, setnr, marker, casecontcd) %>%
+  summarise(value = mean(value)) %>%
+  spread(casecontcd, value) %>%
+  mutate(setdiff = case - control) %>%
+  ## Spread into columns for original and re-extracted RNA
+  select(marker, setnr, rna_extract, setdiff) %>%
+  spread(rna_extract, setdiff)
+```
+
+```{r setdiffs, fig.height=4, fig.width=8, fig.cap = "Figure. Case-control set differences."}
+ggplot_setdiff <- function(data) {
+  lim0 <- c(-1, 1) * max(abs(c(data$original, data$reextract)))
+  ggplot(data, aes(x = original, y = reextract)) +
+    geom_vline(xintercept = 0, col = "darkgrey", linetype = "solid") +
+    geom_hline(yintercept = 0, col = "darkgrey", linetype = "solid") +
+    geom_abline(intercept = 0, slope = 1, col = "darkgrey", linetype = "dashed") +
+    geom_point() +
+    facet_wrap(~ marker) +
+    coord_fixed() +
+    lims(x = lim0, y = lim0) +
+    labs(
+      x = "Case-control set difference\noriginal RNA",
+      y = "Case-control set difference\nreextracted RNA")
+}
+
+cowplot::plot_grid(
+  ggplot_setdiff(filter(setdiff_tbl, marker == "ACVRL1")),
+  ggplot_setdiff(filter(setdiff_tbl, marker == "ACVRL1_endothelial_index")),
+  labels = "AUTO", ncol = 2)
+```
 
 # R session information
 

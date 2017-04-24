@@ -6,10 +6,17 @@ for (i in 1:2) {
   pData(gse48091)[, varnam] <- varval
 }
 varLabels(gse48091)[varLabels(gse48091) == "case-control status"] <- "casecontstat"
-gse48091$tumorid <- gsub("Primary tumor breast - ", "", gse48091$title)
-gse48091$piece <- 1
 
-## Annotation data
+## Munge phenotypic data
+pData(gse48091) <- pData(gse48091) %>%
+  as_tibble() %>%
+  mutate(
+    tumorid = gsub("Primary tumor breast - ", "", title),
+    piece = 1L
+  ) %>%
+  (function(x) data.frame(x, row.names = x$geo_accession))
+
+## Append annotation data
 annotation(gse48091) <- "HuRSTA2a520709"
 fData(gse48091) <- fData(gse48091) %>%
   mutate(

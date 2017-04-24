@@ -6,9 +6,19 @@ for (id in c("1", "1.1", "1.2", "1.3")) {
   pData(gse81954)[, varnam] <- varval
 }
 varLabels(gse81954)[varLabels(gse81954) == "case-control status"] <- "casecontstat"
-gse81954$tumorid <- gse81954$ID
 
-## Annotation data
+## Munge phenotypic data
+pData(gse81954) <- pData(gse81954) %>%
+  as_tibble() %>%
+  mutate(
+    tumorid = ID,
+    piece = as.integer(piece),
+    setnr = as.integer(setnr),
+    casecontstat = as.integer(casecontstat)
+  ) %>%
+  (function(x) data.frame(x, row.names = x$geo_accession))
+
+## Append annotation data
 annotation(gse81954) <- "HuRSTA2a520709"
 fData(gse81954) <- fData(gse81954) %>%
   mutate(
